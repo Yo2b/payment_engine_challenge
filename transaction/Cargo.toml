@@ -8,6 +8,9 @@ rust-version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+csv-async.workspace = true
+futures.workspace = true
 tokio = { workspace = true, features = ["fs", "io-std", "io-util"] } # "macros", "rt", "sync", "time"
+tracing.workspace = true
 
 [dev-dependencies]
