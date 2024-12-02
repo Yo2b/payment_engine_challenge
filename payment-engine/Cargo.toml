@@ -1,0 +1,13 @@
+[package]
+name = "payment-engine"
+version = "0.0.0"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+# Workspace dependencies
+transaction.workspace = true
+
+[dev-dependencies]
