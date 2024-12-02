@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+clap = { workspace = true, features = ["wrap_help"] } # "env"
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 # Workspace dependencies
 transaction.workspace = true
