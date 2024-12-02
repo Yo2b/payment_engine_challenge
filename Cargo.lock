@@ -700,6 +700,7 @@ version = "0.0.0"
 dependencies = [
  "csv-async",
  "futures",
+ "serde",
  "thiserror",
  "tokio",
  "tracing",
