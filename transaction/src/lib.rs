@@ -86,11 +86,9 @@ impl Transaction {
     }
 }
 
-/// A client's account.
-#[derive(Clone, Debug, Serialize)]
-#[serde(into = "AccountRecord")]
-pub struct Account {
-    pub client: ClientID,
+/// A client's account status.
+#[derive(Clone, Debug, Default, Serialize, PartialEq)]
+pub struct AccountStatus {
     /// Available funds for this account.
     pub available: Amount,
     /// Held funds for this account, ie. disputed amounts.
@@ -99,21 +97,26 @@ pub struct Account {
     pub locked: bool,
 }
 
-impl Account {
-    #[inline]
-    fn new(client: ClientID) -> Self {
-        Self {
-            client,
-            available: 0.0,
-            held: 0.0,
-            locked: false,
-        }
-    }
-
+impl AccountStatus {
     /// Compute total funds for this account.
     #[inline]
-    fn total(&self) -> Amount {
+    pub fn total(&self) -> Amount {
         self.available + self.held
+    }
+}
+
+/// A client's account.
+#[derive(Clone, Debug, Serialize)]
+#[serde(into = "AccountRecord")]
+pub struct Account {
+    client: ClientID,
+    status: AccountStatus,
+}
+
+impl From<(ClientID, AccountStatus)> for Account {
+    #[inline]
+    fn from((client, status): (ClientID, AccountStatus)) -> Self {
+        Self { client, status }
     }
 }
 
@@ -132,10 +135,10 @@ impl From<Account> for AccountRecord {
     fn from(account: Account) -> Self {
         Self {
             client: account.client,
-            available: account.available,
-            held: account.held,
-            total: account.total(),
-            locked: account.locked,
+            available: account.status.available,
+            held: account.status.held,
+            total: account.status.total(),
+            locked: account.status.locked,
         }
     }
 }

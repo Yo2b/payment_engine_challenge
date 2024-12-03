@@ -2,14 +2,14 @@
 
 use std::collections::HashMap;
 
-use futures::{stream, Stream, TryFutureExt, TryStreamExt};
+use futures::{stream, Stream, StreamExt, TryFutureExt, TryStreamExt};
 
-use crate::{Account, ClientID, Result, Transaction};
+use crate::{Account, AccountStatus, ClientID, Result, Transaction};
 
 /// A transaction processor.
 #[derive(Debug, Default)]
 pub struct Processor {
-    accounts: HashMap<ClientID, Account>,
+    accounts: HashMap<ClientID, AccountStatus>,
 }
 
 impl Processor {
@@ -21,7 +21,7 @@ impl Processor {
 
                 Ok(processor)
             })
-            .map_ok(|processor| stream::iter(processor.accounts.into_values().map(Ok)))
+            .map_ok(|processor| stream::iter(processor.accounts).map(Into::into).map(Ok))
             .try_flatten_stream()
     }
 
@@ -29,9 +29,7 @@ impl Processor {
     pub fn process_transaction(&mut self, transaction: Transaction) -> Result<()> {
         tracing::debug!("{transaction:?}");
 
-        self.accounts
-            .entry(transaction.client)
-            .or_insert_with_key(|client| Account::new(*client));
+        self.accounts.entry(transaction.client).or_default();
 
         Ok(())
     }
