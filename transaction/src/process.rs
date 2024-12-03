@@ -10,20 +10,20 @@ use crate::{Account, AccountStatus, Amount, ClientID, Result, Transaction, Trans
 /// A transaction process error.
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("missing amount")]
-    MissingAmount,
-    #[error("transaction already exists")]
-    TransactionAlreadyExists,
-    #[error("transaction does not exist")]
-    TransactionNotFound,
-    #[error("operation not supported")]
-    OperationNotSupported,
-    #[error("too much funds")]
-    TooManyFunds,
-    #[error("not enough funds")]
-    NotEnoughFunds,
-    #[error("account locked")]
-    AccountLocked,
+    #[error("missing amount in transaction '{0}'")]
+    MissingAmount(TransactionID),
+    #[error("transaction '{0}' already exists")]
+    TransactionAlreadyExists(TransactionID),
+    #[error("transaction '{0}' does not exist")]
+    TransactionNotFound(TransactionID),
+    #[error("operation not supported in transaction '{0}' ({1:?} -> {2:?})")]
+    OperationNotSupported(TransactionID, Option<TransactionType>, TransactionType),
+    #[error("too much funds to operate transaction '{0}' for client '{1}'")]
+    TooManyFunds(TransactionID, ClientID),
+    #[error("not enough funds to operate transaction '{0}' for client '{1}'")]
+    NotEnoughFunds(TransactionID, ClientID),
+    #[error("account locked, cannot operate transaction '{0}' for client '{1}'")]
+    AccountLocked(TransactionID, ClientID),
 }
 
 /// A transaction process status.
@@ -66,7 +66,7 @@ impl Processor {
         let account_status = self.accounts.entry(transaction.client).or_default();
 
         if account_status.locked {
-            return Err(Error::AccountLocked);
+            return Err(Error::AccountLocked(transaction.tx, transaction.client));
         }
 
         match transaction.r#type {
@@ -87,9 +87,9 @@ impl Processor {
     ) -> Result<(), Error> {
         let (t, amount) = match transaction.r#type {
             t @ TransactionType::Deposit => {
-                let amount = transaction.amount.ok_or(Error::MissingAmount)?;
+                let amount = transaction.amount.ok_or(Error::MissingAmount(transaction.tx))?;
                 if Amount::MAX - account_status.available < amount {
-                    return Err(Error::TooManyFunds);
+                    return Err(Error::TooManyFunds(transaction.tx, transaction.client));
                 }
 
                 account_status.available += amount;
@@ -97,20 +97,20 @@ impl Processor {
                 (t, amount)
             }
             t @ TransactionType::Withdrawal => {
-                let amount = transaction.amount.ok_or(Error::MissingAmount)?;
+                let amount = transaction.amount.ok_or(Error::MissingAmount(transaction.tx))?;
                 if account_status.available < amount {
-                    return Err(Error::NotEnoughFunds);
+                    return Err(Error::NotEnoughFunds(transaction.tx, transaction.client));
                 }
 
                 account_status.available -= amount;
 
                 (t, amount)
             }
-            _ => return Err(Error::OperationNotSupported),
+            t => return Err(Error::OperationNotSupported(transaction.tx, None, t)),
         };
 
         match transactions.entry(transaction.tx) {
-            Entry::Occupied(..) => Err(Error::TransactionAlreadyExists),
+            Entry::Occupied(..) => Err(Error::TransactionAlreadyExists(transaction.tx)),
             vacant => {
                 vacant.insert_entry(TransactionStatus(t, amount));
                 Ok(())
@@ -127,7 +127,7 @@ impl Processor {
     ) -> Result<(), Error> {
         let (t, amount) = match transactions.get_mut(&transaction_id) {
             Some(transaction_status) => transaction_status.as_mut(),
-            None => return Err(Error::TransactionNotFound),
+            None => return Err(Error::TransactionNotFound(transaction_id)),
         };
 
         match transaction_type {
@@ -144,7 +144,7 @@ impl Processor {
                 account_status.held -= amount;
                 account_status.locked = true;
             }
-            _ => return Err(Error::OperationNotSupported),
+            _ => return Err(Error::OperationNotSupported(transaction_id, Some(*t), transaction_type)),
         }
 
         *t = transaction_type;
@@ -186,13 +186,13 @@ mod tests {
         // Test: existing transaction
         let transaction = Transaction::deposit(2, Default::default());
         let err = Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap_err();
-        assert_matches!(err, Error::TransactionAlreadyExists);
+        assert_matches!(err, Error::TransactionAlreadyExists(2));
 
         // Test: register anything else than `Deposit` or `Withdrawal`
         for transaction_type in [TransactionType::Dispute, TransactionType::Resolve, TransactionType::Chargeback] {
             let transaction = Transaction::new(transaction_type, 3, Default::default());
             let err = Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap_err();
-            assert_matches!(err, Error::OperationNotSupported);
+            assert_matches!(err, Error::OperationNotSupported(3, None, t) if t == transaction_type);
         }
     }
 
@@ -206,7 +206,7 @@ mod tests {
 
         for transaction_type in not_supported.iter().chain(transaction_types) {
             let err = Processor::dispute_transaction(transactions, transaction_id, *transaction_type, account_status).unwrap_err();
-            assert_matches!(err, Error::OperationNotSupported);
+            assert_matches!(err, Error::OperationNotSupported(id, Some(_), t) if id == transaction_id && t == *transaction_type);
         }
     }
 
@@ -244,7 +244,7 @@ mod tests {
 
         // Test: not existing transaction
         let err = Processor::dispute_transaction(&mut transactions, 3, TransactionType::Deposit, &mut account_status).unwrap_err();
-        assert_matches!(err, Error::TransactionNotFound);
+        assert_matches!(err, Error::TransactionNotFound(3));
     }
 
     #[test]
@@ -327,7 +327,7 @@ mod tests {
         assert_eq!(processor.accounts[&0], AccountStatus { available: deposit, held: 0.0, locked: false });
 
         let err = processor.process_transaction(Transaction::dispute(2)).unwrap_err();
-        assert_matches!(err, Error::TransactionNotFound);
+        assert_matches!(err, Error::TransactionNotFound(2));
 
         processor.process_transaction(Transaction::withdrawal(2, withdrawal)).unwrap();
         assert_eq!(processor.accounts[&0], AccountStatus { available: deposit - withdrawal, held: 0.0, locked: false });
@@ -354,7 +354,7 @@ mod tests {
             TransactionType::Chargeback,
         ] {
             let err = processor.process_transaction(Transaction::new(t, 4, None)).unwrap_err();
-            assert_matches!(err, Error::AccountLocked);
+            assert_matches!(err, Error::AccountLocked(4, 0));
         }
     }
 }
