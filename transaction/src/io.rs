@@ -34,7 +34,8 @@ where
     R: io::AsyncRead + Send + Unpin,
     W: io::AsyncWrite + Unpin,
 {
-    let mut stream = crate::Processor::process(reader.into_deserialize().err_into());
+    let stream = crate::Processor::process(reader.into_deserialize().err_into());
+    tokio::pin!(stream);
 
     while let Some(record) = stream.try_next().await? {
         writer.serialize(record).await?;
@@ -43,4 +44,37 @@ where
     writer.flush().await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn test_process(input: &[u8], output: &mut Vec<u8>) -> crate::Result<()> {
+        let buffer = std::io::Cursor::new(output);
+
+        let reader = AsyncDeserializer::from_reader(input);
+        let writer = AsyncSerializer::from_writer(buffer);
+
+        process(reader, writer).await
+    }
+
+    #[tokio::test/* (flavor = "multi_thread") */]
+    #[tracing_test::traced_test]
+    async fn test_process_ok() {
+        let transactions = r"
+type,client,tx,amount
+deposit,1,1,5.1
+withdrawal,1,2,1.0
+withdrawal,1,3,4.0
+dispute,1,2,
+resolve,1,2,
+dispute,1,3,
+chargeback,1,3,
+";
+
+        let mut data = vec![];
+        test_process(transactions.as_bytes(), &mut data).await.unwrap();
+        assert_eq!(data, b"client,available,held,total,locked\n1,0.0,0.0,0.0,false\n");
+    }
 }
