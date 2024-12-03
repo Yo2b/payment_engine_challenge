@@ -9,6 +9,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Csv(#[from] csv_async::Error),
+    // #[error(transparent)]
+    // Process(#[from] crate::process::Error),
 }
 
 /// Convenient alias for a crate result.
