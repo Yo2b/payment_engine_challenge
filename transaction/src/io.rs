@@ -1,6 +1,6 @@
 //! A module providing transaction I/O features.
 
-use csv_async::{AsyncDeserializer, AsyncReaderBuilder, AsyncSerializer, AsyncWriterBuilder, Error, Trim};
+use csv_async::{AsyncDeserializer, AsyncReaderBuilder, AsyncSerializer, AsyncWriterBuilder, Trim};
 use futures::stream::TryStreamExt;
 use tokio::io;
 
@@ -29,7 +29,7 @@ pub fn writer(wtr: impl io::AsyncWrite + Unpin) -> io::Result<AsyncSerializer<im
 }
 
 /// Run a transaction process.
-pub async fn process<R, W>(reader: AsyncDeserializer<R>, mut writer: AsyncSerializer<W>) -> Result<(), Error>
+pub async fn process<R, W>(reader: AsyncDeserializer<R>, mut writer: AsyncSerializer<W>) -> crate::Result<()>
 where
     R: io::AsyncRead + Send + Unpin,
     W: io::AsyncWrite + Unpin,
