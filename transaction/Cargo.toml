@@ -16,5 +16,6 @@ tokio = { workspace = true, features = ["fs", "io-std", "io-util"] } # "macros",
 tracing.workspace = true
 
 [dev-dependencies]
+assert_matches.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing-test.workspace = true
