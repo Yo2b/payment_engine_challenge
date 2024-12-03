@@ -70,20 +70,31 @@ impl Processor {
         }
 
         match transaction.r#type {
+            TransactionType::Deposit | TransactionType::Withdrawal => {
+                Self::register_transaction(&mut self.transactions, transaction, account_status)?;
+            }
+            t => Self::dispute_transaction(&mut self.transactions, transaction.tx, t, account_status)?,
+        }
+
+        Ok(())
+    }
+
+    /// Manage a new transaction.
+    fn register_transaction(
+        transactions: &mut HashMap<TransactionID, TransactionStatus>,
+        transaction: Transaction,
+        account_status: &mut AccountStatus,
+    ) -> Result<(), Error> {
+        let (t, amount) = match transaction.r#type {
             t @ TransactionType::Deposit => {
                 let amount = transaction.amount.ok_or(Error::MissingAmount)?;
                 if Amount::MAX - account_status.available < amount {
                     return Err(Error::TooManyFunds);
                 }
 
-                match self.transactions.entry(transaction.tx) {
-                    Entry::Occupied(..) => return Err(Error::TransactionAlreadyExists),
-                    vacant => {
-                        vacant.insert_entry(TransactionStatus(t, amount));
-                    }
-                }
-
                 account_status.available += amount;
+
+                (t, amount)
             }
             t @ TransactionType::Withdrawal => {
                 let amount = transaction.amount.ok_or(Error::MissingAmount)?;
@@ -91,47 +102,52 @@ impl Processor {
                     return Err(Error::NotEnoughFunds);
                 }
 
-                match self.transactions.entry(transaction.tx) {
-                    Entry::Occupied(..) => return Err(Error::TransactionAlreadyExists),
-                    vacant => {
-                        vacant.insert_entry(TransactionStatus(t, amount));
-                    }
-                }
-
                 account_status.available -= amount;
+
+                (t, amount)
             }
-            TransactionType::Dispute => match self.transactions.get_mut(&transaction.tx).map(TransactionStatus::as_mut) {
-                Some((t, amount)) if matches!(t, TransactionType::Withdrawal) => {
-                    // account_status.available -= amount; // challenge wording error
-                    account_status.held += amount;
+            _ => return Err(Error::OperationNotSupported),
+        };
 
-                    *t = TransactionType::Dispute;
-                }
-                Some(_) => return Err(Error::OperationNotSupported),
-                None => return Err(Error::TransactionNotFound),
-            },
-            TransactionType::Resolve => match self.transactions.get_mut(&transaction.tx).map(TransactionStatus::as_mut) {
-                Some((t, amount)) if matches!(t, TransactionType::Dispute) => {
-                    account_status.available += amount;
-                    account_status.held -= amount;
-
-                    *t = TransactionType::Resolve;
-                }
-                Some(_) => return Err(Error::OperationNotSupported),
-                None => return Err(Error::TransactionNotFound),
-            },
-            TransactionType::Chargeback => match self.transactions.get_mut(&transaction.tx).map(TransactionStatus::as_mut) {
-                Some((t, amount)) if matches!(t, TransactionType::Dispute) => {
-                    // account_status.available -= amount;
-                    account_status.held -= amount;
-                    account_status.locked = true;
-
-                    *t = TransactionType::Chargeback;
-                }
-                Some(_) => return Err(Error::OperationNotSupported),
-                None => return Err(Error::TransactionNotFound),
-            },
+        match transactions.entry(transaction.tx) {
+            Entry::Occupied(..) => Err(Error::TransactionAlreadyExists),
+            vacant => {
+                vacant.insert_entry(TransactionStatus(t, amount));
+                Ok(())
+            }
         }
+    }
+
+    /// Manage a transaction dispute.
+    fn dispute_transaction(
+        transactions: &mut HashMap<TransactionID, TransactionStatus>,
+        transaction_id: TransactionID,
+        transaction_type: TransactionType,
+        account_status: &mut AccountStatus,
+    ) -> Result<(), Error> {
+        let (t, amount) = match transactions.get_mut(&transaction_id) {
+            Some(transaction_status) => transaction_status.as_mut(),
+            None => return Err(Error::TransactionNotFound),
+        };
+
+        match transaction_type {
+            TransactionType::Dispute if matches!(t, TransactionType::Withdrawal) => {
+                // account_status.available -= amount; // challenge wording error
+                account_status.held += amount;
+            }
+            TransactionType::Resolve if matches!(t, TransactionType::Dispute) => {
+                account_status.available += amount;
+                account_status.held -= amount;
+            }
+            TransactionType::Chargeback if matches!(t, TransactionType::Dispute) => {
+                // account_status.available -= amount;
+                account_status.held -= amount;
+                account_status.locked = true;
+            }
+            _ => return Err(Error::OperationNotSupported),
+        }
+
+        *t = transaction_type;
 
         Ok(())
     }
