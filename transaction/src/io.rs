@@ -34,10 +34,9 @@ where
     R: io::AsyncRead + Send + Unpin,
     W: io::AsyncWrite + Unpin,
 {
-    let mut stream = reader.into_deserialize::<Vec<String>>();
+    let mut stream = crate::Processor::process(reader.into_deserialize().err_into());
 
     while let Some(record) = stream.try_next().await? {
-        tracing::debug!("{record:?}");
         writer.serialize(record).await?;
     }
 
