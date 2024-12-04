@@ -9,13 +9,17 @@ mod process;
 pub use process::Processor;
 
 pub mod io;
+pub mod num;
+
+/// Decimal precision used for transaction amounts.
+const PREC: u8 = 4;
 
 /// Convenient alias for a client ID.
 pub type ClientID = u16;
 /// Convenient alias for a transaction ID.
 pub type TransactionID = u32;
 /// Convenient alias for a transaction amount.
-pub type Amount = f32;
+pub type Amount = num::Decimal<PREC>;
 
 /// A transaction type.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -87,7 +91,7 @@ impl Transaction {
 }
 
 /// A client's account status.
-#[derive(Clone, Debug, Default, Serialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
 pub struct AccountStatus {
     /// Available funds for this account.
     pub available: Amount,

@@ -253,15 +253,16 @@ mod tests {
         let mut transactions = HashMap::default();
         let mut account_status = AccountStatus::default();
 
-        let deposit = 5.0;
-        let withdrawal = 2.0;
+        let deposit = Amount::from(5);
+        let withdrawal = Amount::from(2);
+        let zero = Amount::from(0);
 
         let transaction = Transaction::deposit(1, deposit);
         Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap();
         let transaction = Transaction::withdrawal(2, withdrawal);
         Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap();
 
-        assert_eq!(account_status, AccountStatus { available: deposit - withdrawal, held: 0.0, locked: false });
+        assert_eq!(account_status, AccountStatus { available: deposit - withdrawal, held: zero, locked: false });
 
         Processor::dispute_transaction(&mut transactions, 2, TransactionType::Dispute, &mut account_status).unwrap();
 
@@ -269,7 +270,7 @@ mod tests {
 
         Processor::dispute_transaction(&mut transactions, 2, TransactionType::Resolve, &mut account_status).unwrap();
 
-        assert_eq!(account_status, AccountStatus { available: deposit, held: 0.0, locked: false });
+        assert_eq!(account_status, AccountStatus { available: deposit, held: zero, locked: false });
 
         assert_dispute_not_supported(
             2,
@@ -278,7 +279,7 @@ mod tests {
             &mut account_status,
         );
 
-        assert_eq!(account_status, AccountStatus { available: deposit, held: 0.0, locked: false });
+        assert_eq!(account_status, AccountStatus { available: deposit, held: zero, locked: false });
     }
 
     #[test]
@@ -287,15 +288,16 @@ mod tests {
         let mut transactions = HashMap::default();
         let mut account_status = AccountStatus::default();
 
-        let deposit = 5.0;
-        let withdrawal = 2.0;
+        let deposit = Amount::from(5);
+        let withdrawal = Amount::from(2);
+        let zero = Amount::from(0);
 
         let transaction = Transaction::deposit(1, deposit);
         Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap();
         let transaction = Transaction::withdrawal(3, withdrawal);
         Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap();
 
-        assert_eq!(account_status, AccountStatus { available: deposit - withdrawal, held: 0.0, locked: false });
+        assert_eq!(account_status, AccountStatus { available: deposit - withdrawal, held: zero, locked: false });
 
         Processor::dispute_transaction(&mut transactions, 3, TransactionType::Dispute, &mut account_status).unwrap();
 
@@ -303,7 +305,7 @@ mod tests {
 
         Processor::dispute_transaction(&mut transactions, 3, TransactionType::Chargeback, &mut account_status).unwrap();
 
-        assert_eq!(account_status, AccountStatus { available: deposit - withdrawal, held: 0.0, locked: true });
+        assert_eq!(account_status, AccountStatus { available: deposit - withdrawal, held: zero, locked: true });
 
         assert_dispute_not_supported(
             3,
@@ -312,7 +314,7 @@ mod tests {
             &mut account_status,
         );
 
-        assert_eq!(account_status, AccountStatus { available: deposit - withdrawal, held: 0.0, locked: true });
+        assert_eq!(account_status, AccountStatus { available: deposit - withdrawal, held: zero, locked: true });
     }
 
     #[test]
@@ -320,23 +322,24 @@ mod tests {
     fn test_process_transaction() {
         let mut processor = Processor::default();
 
-        let deposit = 5.0;
-        let withdrawal = 2.0;
+        let deposit = Amount::from(5);
+        let withdrawal = Amount::from(2);
+        let zero = Amount::from(0);
 
         processor.process_transaction(Transaction::deposit(1, deposit)).unwrap();
-        assert_eq!(processor.accounts[&0], AccountStatus { available: deposit, held: 0.0, locked: false });
+        assert_eq!(processor.accounts[&0], AccountStatus { available: deposit, held: zero, locked: false });
 
         let err = processor.process_transaction(Transaction::dispute(2)).unwrap_err();
         assert_matches!(err, Error::TransactionNotFound(2));
 
         processor.process_transaction(Transaction::withdrawal(2, withdrawal)).unwrap();
-        assert_eq!(processor.accounts[&0], AccountStatus { available: deposit - withdrawal, held: 0.0, locked: false });
+        assert_eq!(processor.accounts[&0], AccountStatus { available: deposit - withdrawal, held: zero, locked: false });
 
         processor.process_transaction(Transaction::dispute(2)).unwrap();
         assert_eq!(processor.accounts[&0], AccountStatus { available: deposit - withdrawal, held: withdrawal, locked: false });
 
         processor.process_transaction(Transaction::resolve(2)).unwrap();
-        assert_eq!(processor.accounts[&0], AccountStatus { available: deposit, held: 0.0, locked: false });
+        assert_eq!(processor.accounts[&0], AccountStatus { available: deposit, held: zero, locked: false });
 
         processor.process_transaction(Transaction::withdrawal(3, withdrawal)).unwrap();
 
@@ -344,7 +347,7 @@ mod tests {
         assert_eq!(processor.accounts[&0], AccountStatus { available: deposit - withdrawal, held: withdrawal, locked: false });
 
         processor.process_transaction(Transaction::chargeback(3)).unwrap();
-        assert_eq!(processor.accounts[&0], AccountStatus { available: deposit - withdrawal, held: 0.0, locked: true });
+        assert_eq!(processor.accounts[&0], AccountStatus { available: deposit - withdrawal, held: zero, locked: true });
 
         for t in [
             TransactionType::Deposit,

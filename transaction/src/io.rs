@@ -75,6 +75,6 @@ chargeback,1,3,
 
         let mut data = vec![];
         test_process(transactions.as_bytes(), &mut data).await.unwrap();
-        assert_eq!(data, b"client,available,held,total,locked\n1,1.0999999,0.0,1.0999999,true\n");
+        assert_eq!(data, b"client,available,held,total,locked\n1,1.1,0,1.1,true\n");
     }
 }
