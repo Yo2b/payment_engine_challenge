@@ -1,11 +1,14 @@
 //! A module providing transaction processing features.
 
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::HashMap;
 
 use futures::{stream, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use thiserror::Error;
 
 use crate::{Account, AccountStatus, Amount, ClientID, Result, Transaction, TransactionID, TransactionType};
+
+const DEFAULT_TRANSACTION_CAPACITY: usize = 10_000;
+const MAX_TRANSACTION_CAPACITY: usize = 100_000;
 
 /// A transaction process error.
 #[derive(Debug, Error)]
@@ -37,10 +40,19 @@ impl TransactionStatus {
 }
 
 /// A transaction processor.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Processor {
     accounts: HashMap<ClientID, AccountStatus>,
     transactions: HashMap<TransactionID, TransactionStatus>,
+}
+
+impl Default for Processor {
+    fn default() -> Self {
+        Self {
+            accounts: HashMap::default(),
+            transactions: HashMap::with_capacity(DEFAULT_TRANSACTION_CAPACITY),
+        }
+    }
 }
 
 impl Processor {
@@ -109,13 +121,15 @@ impl Processor {
             t => return Err(Error::OperationNotSupported(transaction.tx, None, t)),
         };
 
-        match transactions.entry(transaction.tx) {
-            Entry::Occupied(..) => Err(Error::TransactionAlreadyExists(transaction.tx)),
-            vacant => {
-                vacant.insert_entry(TransactionStatus(t, amount));
-                Ok(())
-            }
+        if transactions.contains_key(&transaction.tx) {
+            return Err(Error::TransactionAlreadyExists(transaction.tx));
         }
+
+        Self::rollout_transactions(transactions, MAX_TRANSACTION_CAPACITY);
+
+        transactions.insert(transaction.tx, TransactionStatus(t, amount));
+
+        Ok(())
     }
 
     /// Manage a transaction dispute.
@@ -151,6 +165,20 @@ impl Processor {
 
         Ok(())
     }
+
+    /// Make room for incoming transactions, rolling out old transactions.
+    fn rollout_transactions(transactions: &mut HashMap<TransactionID, TransactionStatus>, max_capacity: usize) {
+        if transactions.len() >= max_capacity {
+            // ideal case: roll out all ended disputes
+            transactions
+                .retain(|_, TransactionStatus(status, _)| !matches!(status, TransactionType::Resolve | TransactionType::Chargeback));
+        }
+        if transactions.len() >= max_capacity {
+            // worst case: got no ended dispute, make room for only one entry, presuming arbitrarily the min. transaction ID could be old enough
+            let tx = *transactions.keys().min().unwrap();
+            transactions.remove(&tx);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -170,6 +198,16 @@ mod tests {
         print_size_of::<AccountStatus>();
         print_size_of::<TransactionStatus>();
         print_size_of::<TransactionType>();
+
+        println!(
+            "Default reserved min. size: {} bytes",
+            DEFAULT_TRANSACTION_CAPACITY * (size_of::<TransactionID>() + size_of::<TransactionStatus>())
+        );
+
+        println!(
+            "Max. size: {} bytes",
+            MAX_TRANSACTION_CAPACITY * (size_of::<TransactionID>() + size_of::<TransactionStatus>())
+        );
     }
 
     #[test]
