@@ -173,6 +173,149 @@ mod tests {
     }
 
     #[test]
+    fn test_register_transaction() {
+        let mut transactions = HashMap::default();
+        let mut account_status = AccountStatus::default();
+
+        let transaction = Transaction::deposit(1, Default::default());
+        Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap();
+
+        let transaction = Transaction::withdrawal(2, Default::default());
+        Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap();
+
+        // Test: existing transaction
+        let transaction = Transaction::deposit(2, Default::default());
+        let err = Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap_err();
+        assert_matches!(err, Error::TransactionAlreadyExists);
+
+        // Test: register anything else than `Deposit` or `Withdrawal`
+        for transaction_type in [TransactionType::Dispute, TransactionType::Resolve, TransactionType::Chargeback] {
+            let transaction = Transaction::new(transaction_type, 3, Default::default());
+            let err = Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap_err();
+            assert_matches!(err, Error::OperationNotSupported);
+        }
+    }
+
+    fn assert_dispute_not_supported(
+        transaction_id: TransactionID,
+        transaction_types: &[TransactionType],
+        transactions: &mut HashMap<TransactionID, TransactionStatus>,
+        account_status: &mut AccountStatus,
+    ) {
+        let not_supported = [TransactionType::Deposit, TransactionType::Withdrawal];
+
+        for transaction_type in not_supported.iter().chain(transaction_types) {
+            let err = Processor::dispute_transaction(transactions, transaction_id, *transaction_type, account_status).unwrap_err();
+            assert_matches!(err, Error::OperationNotSupported);
+        }
+    }
+
+    #[test]
+    fn test_dispute_transaction_failure() {
+        let mut transactions = HashMap::default();
+        let mut account_status = AccountStatus::default();
+
+        // Test: dispute a `Deposit`
+        let transaction = Transaction::deposit(1, Default::default());
+        Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap();
+
+        assert_dispute_not_supported(
+            1,
+            &[TransactionType::Dispute, TransactionType::Resolve, TransactionType::Chargeback],
+            &mut transactions,
+            &mut account_status,
+        );
+
+        // Test: dispute a `Withdrawal`
+        let transaction = Transaction::withdrawal(2, Default::default());
+        Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap();
+
+        assert_dispute_not_supported(
+            2,
+            &[TransactionType::Resolve, TransactionType::Chargeback],
+            &mut transactions,
+            &mut account_status,
+        );
+
+        // Test: dispute a `Dispute`
+        Processor::dispute_transaction(&mut transactions, 2, TransactionType::Dispute, &mut account_status).unwrap();
+
+        assert_dispute_not_supported(2, &[TransactionType::Dispute], &mut transactions, &mut account_status);
+
+        // Test: not existing transaction
+        let err = Processor::dispute_transaction(&mut transactions, 3, TransactionType::Deposit, &mut account_status).unwrap_err();
+        assert_matches!(err, Error::TransactionNotFound);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_dispute_transaction_resolve() {
+        let mut transactions = HashMap::default();
+        let mut account_status = AccountStatus::default();
+
+        let deposit = 5.0;
+        let withdrawal = 2.0;
+
+        let transaction = Transaction::deposit(1, deposit);
+        Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap();
+        let transaction = Transaction::withdrawal(2, withdrawal);
+        Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap();
+
+        assert_eq!(account_status, AccountStatus { available: deposit - withdrawal, held: 0.0, locked: false });
+
+        Processor::dispute_transaction(&mut transactions, 2, TransactionType::Dispute, &mut account_status).unwrap();
+
+        assert_eq!(account_status, AccountStatus { available: deposit - withdrawal, held: withdrawal, locked: false });
+
+        Processor::dispute_transaction(&mut transactions, 2, TransactionType::Resolve, &mut account_status).unwrap();
+
+        assert_eq!(account_status, AccountStatus { available: deposit, held: 0.0, locked: false });
+
+        assert_dispute_not_supported(
+            2,
+            &[TransactionType::Dispute, TransactionType::Chargeback],
+            &mut transactions,
+            &mut account_status,
+        );
+
+        assert_eq!(account_status, AccountStatus { available: deposit, held: 0.0, locked: false });
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_dispute_transaction_chargeback() {
+        let mut transactions = HashMap::default();
+        let mut account_status = AccountStatus::default();
+
+        let deposit = 5.0;
+        let withdrawal = 2.0;
+
+        let transaction = Transaction::deposit(1, deposit);
+        Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap();
+        let transaction = Transaction::withdrawal(3, withdrawal);
+        Processor::register_transaction(&mut transactions, transaction, &mut account_status).unwrap();
+
+        assert_eq!(account_status, AccountStatus { available: deposit - withdrawal, held: 0.0, locked: false });
+
+        Processor::dispute_transaction(&mut transactions, 3, TransactionType::Dispute, &mut account_status).unwrap();
+
+        assert_eq!(account_status, AccountStatus { available: deposit - withdrawal, held: withdrawal, locked: false });
+
+        Processor::dispute_transaction(&mut transactions, 3, TransactionType::Chargeback, &mut account_status).unwrap();
+
+        assert_eq!(account_status, AccountStatus { available: deposit - withdrawal, held: 0.0, locked: true });
+
+        assert_dispute_not_supported(
+            3,
+            &[TransactionType::Dispute, TransactionType::Resolve, TransactionType::Chargeback],
+            &mut transactions,
+            &mut account_status,
+        );
+
+        assert_eq!(account_status, AccountStatus { available: deposit - withdrawal, held: 0.0, locked: true });
+    }
+
+    #[test]
     #[rustfmt::skip]
     fn test_process_transaction() {
         let mut processor = Processor::default();
