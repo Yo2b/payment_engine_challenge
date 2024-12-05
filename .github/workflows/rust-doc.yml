@@ -1,0 +1,43 @@
+name: Rust documentation
+
+on:
+  push:
+    branches: master
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Generate documentation
+        run: cargo doc --workspace --all-features --no-deps --document-private-items
+      - name: Generate 'index.html' file
+        run: echo '<meta http-equiv="refresh" content="0;url=transaction/index.html">' > target/doc/index.html
+      - name: Remove lock file
+        run: rm target/doc/.lock
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/doc
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+        pages: write
+        id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy documentation to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
