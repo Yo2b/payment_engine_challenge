@@ -40,18 +40,21 @@ impl TransactionStatus {
     }
 }
 
+type Accounts = HashMap<ClientID, AccountStatus>;
+type Transactions = HashMap<TransactionID, TransactionStatus>;
+
 /// A transaction processor.
 #[derive(Debug)]
 pub struct Processor {
-    accounts: HashMap<ClientID, AccountStatus>,
-    transactions: HashMap<TransactionID, TransactionStatus>,
+    accounts: Accounts,
+    transactions: Transactions,
 }
 
 impl Default for Processor {
     fn default() -> Self {
         Self {
-            accounts: HashMap::default(),
-            transactions: HashMap::with_capacity(DEFAULT_TRANSACTION_CAPACITY),
+            accounts: Accounts::default(),
+            transactions: Transactions::with_capacity(DEFAULT_TRANSACTION_CAPACITY),
         }
     }
 }
@@ -61,6 +64,8 @@ impl Processor {
     pub fn process(transactions: impl Stream<Item = Result<Transaction>>) -> impl Stream<Item = Result<Account>> {
         transactions
             .try_fold(Self::default(), |mut processor, transaction| async move {
+                tracing::debug!("{transaction:?}");
+
                 // processor.process_transaction(transaction)?;
                 if let Err(err) = processor.process_transaction(transaction) {
                     tracing::error!("Transaction ignored: {err}.")
@@ -74,8 +79,6 @@ impl Processor {
 
     /// Process a single transaction.
     pub fn process_transaction(&mut self, transaction: Transaction) -> Result<(), Error> {
-        tracing::debug!("{transaction:?}");
-
         let account_status = self.accounts.entry(transaction.client).or_default();
 
         if account_status.locked {
@@ -94,7 +97,7 @@ impl Processor {
 
     /// Manage a new transaction.
     fn register_transaction(
-        transactions: &mut HashMap<TransactionID, TransactionStatus>,
+        transactions: &mut Transactions,
         transaction: Transaction,
         account_status: &mut AccountStatus,
     ) -> Result<(), Error> {
@@ -135,7 +138,7 @@ impl Processor {
 
     /// Manage a transaction dispute.
     fn dispute_transaction(
-        transactions: &mut HashMap<TransactionID, TransactionStatus>,
+        transactions: &mut Transactions,
         transaction_id: TransactionID,
         transaction_type: TransactionType,
         account_status: &mut AccountStatus,
@@ -163,7 +166,7 @@ impl Processor {
     ///
     /// # Panics
     /// This function will panic when called with a `max_capacity` equal to `0`.
-    fn rollout_transactions(transactions: &mut HashMap<TransactionID, TransactionStatus>, rollout_threshold: usize, max_capacity: usize) {
+    fn rollout_transactions(transactions: &mut Transactions, rollout_threshold: usize, max_capacity: usize) {
         assert!(max_capacity > 0);
 
         if transactions.len() >= rollout_threshold {
@@ -215,7 +218,7 @@ mod tests {
 
     #[test]
     fn test_rollout_transactions() {
-        let mut transactions = HashMap::from_iter([
+        let mut transactions = Transactions::from_iter([
             (1, TransactionStatus(TransactionType::Deposit, Amount::MIN)),
             (2, TransactionStatus(TransactionType::Withdrawal, Amount::MIN)),
             (3, TransactionStatus(TransactionType::Dispute, Amount::MIN)),
@@ -241,7 +244,7 @@ mod tests {
 
     #[test]
     fn test_register_transaction() {
-        let mut transactions = HashMap::default();
+        let mut transactions = Transactions::default();
         let mut account_status = AccountStatus::default();
 
         let transaction = Transaction::deposit(1, DEPOSIT);
@@ -272,7 +275,7 @@ mod tests {
     fn assert_dispute_not_supported(
         transaction_id: TransactionID,
         transaction_types: &[TransactionType],
-        transactions: &mut HashMap<TransactionID, TransactionStatus>,
+        transactions: &mut Transactions,
         account_status: &mut AccountStatus,
     ) {
         let not_supported = [TransactionType::Deposit, TransactionType::Withdrawal];
@@ -288,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_dispute_transaction_failure() {
-        let mut transactions = HashMap::from_iter([
+        let mut transactions = Transactions::from_iter([
             (1, TransactionStatus(TransactionType::Deposit, DEPOSIT)),
             (2, TransactionStatus(TransactionType::Withdrawal, WITHDRAWAL)),
             (3, TransactionStatus(TransactionType::Dispute, WITHDRAWAL)),
@@ -322,7 +325,7 @@ mod tests {
 
     #[test]
     fn test_dispute_transaction_resolve() {
-        let mut transactions = HashMap::from_iter([
+        let mut transactions = Transactions::from_iter([
             (1, TransactionStatus(TransactionType::Deposit, DEPOSIT)),
             (2, TransactionStatus(TransactionType::Withdrawal, WITHDRAWAL)),
         ]);
@@ -344,7 +347,7 @@ mod tests {
 
     #[test]
     fn test_dispute_transaction_chargeback() {
-        let mut transactions = HashMap::from_iter([
+        let mut transactions = Transactions::from_iter([
             (1, TransactionStatus(TransactionType::Deposit, DEPOSIT)),
             (2, TransactionStatus(TransactionType::Withdrawal, WITHDRAWAL)),
         ]);
