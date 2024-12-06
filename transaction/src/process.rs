@@ -102,7 +102,7 @@ impl Processor {
             return Err(Error::TransactionAlreadyExists(transaction.tx));
         }
 
-        let (t, amount) = match transaction.r#type {
+        let transaction_status = match transaction.r#type {
             t @ TransactionType::Deposit => {
                 let amount = transaction.amount.ok_or(Error::MissingAmount(transaction.tx))?;
                 if Amount::MAX - account_status.available < amount {
@@ -111,7 +111,7 @@ impl Processor {
 
                 account_status.available += amount;
 
-                (t, amount)
+                TransactionStatus(t, amount)
             }
             t @ TransactionType::Withdrawal => {
                 let amount = transaction.amount.ok_or(Error::MissingAmount(transaction.tx))?;
@@ -121,14 +121,14 @@ impl Processor {
 
                 account_status.available -= amount;
 
-                (t, amount)
+                TransactionStatus(t, amount)
             }
             t => return Err(Error::OperationNotSupported(transaction.tx, None, t)),
         };
 
         Self::rollout_transactions(transactions, ROLLOUT_TRANSACTION_THRESHOLD, MAX_TRANSACTION_CAPACITY);
 
-        transactions.insert(transaction.tx, TransactionStatus(t, amount));
+        transactions.insert(transaction.tx, transaction_status);
 
         Ok(())
     }
