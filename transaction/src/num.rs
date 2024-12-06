@@ -35,7 +35,7 @@ impl<const N: u8> Decimal<N> {
     ///
     /// # Panics
     /// This method panics if the decimal cannot be represented, ie. if `uint > Self::MAX_UINT`.
-    fn new(uint: u64, mut frac: u64) -> Self {
+    pub fn new(uint: u64, mut frac: u64) -> Self {
         if N == 0 {
             frac = 0;
         } else if frac == Self::FRAC {
@@ -52,9 +52,19 @@ impl<const N: u8> Decimal<N> {
         Self(uint * Self::FRAC + frac)
     }
 
+    /// Create a new decimal from a raw value.
+    pub const fn raw(value: u64) -> Self {
+        Self(value)
+    }
+
+    /// Turn a decimal into a raw value.
+    pub const fn into_raw(self) -> u64 {
+        self.0
+    }
+
     /// Split this decimal into its integer / fractional parts.
     #[inline]
-    fn split(&self) -> (u64, u64) {
+    pub fn split(&self) -> (u64, u64) {
         (self.0 / Self::FRAC, self.0 % Self::FRAC)
     }
 }
@@ -166,6 +176,12 @@ impl<'de, const N: u8> Deserialize<'de> for Decimal<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_decimal_raw() {
+        assert_eq!(Decimal::<4>::raw(123456).into_raw(), 123456);
+        assert_eq!(Decimal::<4>::raw(123456).split(), (12, 3456));
+    }
 
     #[test]
     fn test_decimal_range() {
