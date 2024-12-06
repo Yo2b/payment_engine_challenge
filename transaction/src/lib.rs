@@ -102,10 +102,31 @@ pub struct AccountStatus {
 }
 
 impl AccountStatus {
-    /// Compute total funds for this account.
+    /// Set held funds for this account status.
+    #[inline]
+    pub fn held(self, held: Amount) -> Self {
+        Self { held, ..self }
+    }
+    /// Set this account status as locked.
+    #[inline]
+    pub fn locked(self) -> Self {
+        Self { locked: true, ..self }
+    }
+    /// Compute total funds for this account status.
     #[inline]
     pub fn total(&self) -> Amount {
         self.available + self.held
+    }
+}
+
+impl From<Amount> for AccountStatus {
+    /// Create a new account status with available funds.
+    #[inline]
+    fn from(available: Amount) -> Self {
+        Self {
+            available,
+            ..Default::default()
+        }
     }
 }
 
