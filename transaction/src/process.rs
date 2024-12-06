@@ -97,6 +97,10 @@ impl Processor {
         transaction: Transaction,
         account_status: &mut AccountStatus,
     ) -> Result<(), Error> {
+        if transactions.contains_key(&transaction.tx) {
+            return Err(Error::TransactionAlreadyExists(transaction.tx));
+        }
+
         let (t, amount) = match transaction.r#type {
             t @ TransactionType::Deposit => {
                 let amount = transaction.amount.ok_or(Error::MissingAmount(transaction.tx))?;
@@ -120,10 +124,6 @@ impl Processor {
             }
             t => return Err(Error::OperationNotSupported(transaction.tx, None, t)),
         };
-
-        if transactions.contains_key(&transaction.tx) {
-            return Err(Error::TransactionAlreadyExists(transaction.tx));
-        }
 
         Self::rollout_transactions(transactions, MAX_TRANSACTION_CAPACITY);
 
@@ -366,6 +366,9 @@ mod tests {
 
         processor.process_transaction(Transaction::deposit(1, deposit)).unwrap();
         assert_eq!(processor.accounts[&0], AccountStatus { available: deposit, held: zero, locked: false });
+
+        let err = processor.process_transaction(Transaction::deposit(1, deposit)).unwrap_err();
+        assert_matches!(err, Error::TransactionAlreadyExists(1));
 
         let err = processor.process_transaction(Transaction::dispute(2)).unwrap_err();
         assert_matches!(err, Error::TransactionNotFound(2));
