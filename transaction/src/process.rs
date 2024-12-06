@@ -8,7 +8,8 @@ use thiserror::Error;
 use crate::{Account, AccountStatus, Amount, ClientID, Result, Transaction, TransactionID, TransactionType};
 
 const DEFAULT_TRANSACTION_CAPACITY: usize = 10_000;
-const MAX_TRANSACTION_CAPACITY: usize = 100_000;
+const MAX_TRANSACTION_CAPACITY: usize = 1_000_000;
+const ROLLOUT_TRANSACTION_THRESHOLD: usize = 1_000;
 
 /// A transaction process error.
 #[derive(Debug, Error)]
@@ -125,7 +126,7 @@ impl Processor {
             t => return Err(Error::OperationNotSupported(transaction.tx, None, t)),
         };
 
-        Self::rollout_transactions(transactions, MAX_TRANSACTION_CAPACITY);
+        Self::rollout_transactions(transactions, ROLLOUT_TRANSACTION_THRESHOLD, MAX_TRANSACTION_CAPACITY);
 
         transactions.insert(transaction.tx, TransactionStatus(t, amount));
 
@@ -167,16 +168,25 @@ impl Processor {
     }
 
     /// Make room for incoming transactions, rolling out old transactions.
-    fn rollout_transactions(transactions: &mut HashMap<TransactionID, TransactionStatus>, max_capacity: usize) {
-        if transactions.len() >= max_capacity {
+    ///
+    /// It is guaranteed that room has been made for at least one future transaction wrt. expected `max_capacity`.
+    ///
+    /// # Panics
+    /// This function will panic when called with a `max_capacity` equal to `0`.
+    fn rollout_transactions(transactions: &mut HashMap<TransactionID, TransactionStatus>, rollout_threshold: usize, max_capacity: usize) {
+        assert!(max_capacity > 0);
+
+        if transactions.len() >= rollout_threshold {
             // ideal case: roll out all ended disputes
             transactions
                 .retain(|_, TransactionStatus(status, _)| !matches!(status, TransactionType::Resolve | TransactionType::Chargeback));
         }
-        if transactions.len() >= max_capacity {
+        while transactions.len() >= max_capacity {
             // worst case: got no ended dispute, make room for only one entry, presuming arbitrarily the min. transaction ID could be old enough
             let tx = *transactions.keys().min().unwrap();
-            transactions.remove(&tx);
+            let transaction_status = transactions.remove(&tx).unwrap();
+
+            tracing::warn!("Transaction dropped: '{tx}' ({transaction_status:?}).");
         }
     }
 }
@@ -212,6 +222,32 @@ mod tests {
 
     const DEPOSIT: Amount = Amount::raw(50000);
     const WITHDRAWAL: Amount = Amount::raw(20000);
+
+    #[test]
+    fn test_rollout_transactions() {
+        let mut transactions = HashMap::from_iter([
+            (1, TransactionStatus(TransactionType::Deposit, Amount::MIN)),
+            (2, TransactionStatus(TransactionType::Withdrawal, Amount::MIN)),
+            (3, TransactionStatus(TransactionType::Dispute, Amount::MIN)),
+            (4, TransactionStatus(TransactionType::Resolve, Amount::MIN)),
+            (5, TransactionStatus(TransactionType::Chargeback, Amount::MIN)),
+        ]);
+
+        Processor::rollout_transactions(&mut transactions, 6, 6);
+        assert!(transactions.len() == 5);
+
+        Processor::rollout_transactions(&mut transactions, 5, 6);
+        assert!(transactions.len() == 3 && [1, 2, 3].iter().all(|id| transactions.contains_key(id)));
+
+        Processor::rollout_transactions(&mut transactions, 0, 6);
+        assert!(transactions.len() == 3);
+
+        Processor::rollout_transactions(&mut transactions, 0, 3);
+        assert!(transactions.len() == 2 && !transactions.contains_key(&1));
+
+        Processor::rollout_transactions(&mut transactions, 0, 1);
+        assert!(transactions.is_empty());
+    }
 
     #[test]
     fn test_register_transaction() {
