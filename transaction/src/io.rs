@@ -65,8 +65,9 @@ mod tests {
         let transactions = r"
 type,client,tx,amount
 deposit,1,1,5.1
-withdrawal,1,2,1.0
-withdrawal,1,3,4.0
+deposit,1,2,0.2
+deposit,1,3,1.0
+withdrawal,1,4,4.2
 dispute,1,2,
 resolve,1,2,
 dispute,1,3,
