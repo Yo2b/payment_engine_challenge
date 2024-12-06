@@ -149,7 +149,7 @@ impl Processor {
         };
 
         match transaction_type {
-            TransactionType::Dispute if matches!(t, TransactionType::Withdrawal) => account_status.hold(amount),
+            TransactionType::Dispute if matches!(t, TransactionType::Deposit) => account_status.hold(amount),
             TransactionType::Resolve if matches!(t, TransactionType::Dispute) => account_status.release(amount),
             TransactionType::Chargeback if matches!(t, TransactionType::Dispute) => account_status.lock(amount),
             _ => return Err(Error::OperationNotSupported(transaction_id, Some(*t), transaction_type)),
@@ -215,6 +215,8 @@ mod tests {
 
     const DEPOSIT: Amount = Amount::raw(50000);
     const WITHDRAWAL: Amount = Amount::raw(20000);
+    const DISPUTED: Amount = Amount::raw(10000);
+    const AVAILABLE: Amount = Amount::raw(DEPOSIT.into_raw() - WITHDRAWAL.into_raw() + DISPUTED.into_raw());
 
     #[test]
     fn test_rollout_transactions() {
@@ -294,14 +296,14 @@ mod tests {
         let mut transactions = Transactions::from_iter([
             (1, TransactionStatus(TransactionType::Deposit, DEPOSIT)),
             (2, TransactionStatus(TransactionType::Withdrawal, WITHDRAWAL)),
-            (3, TransactionStatus(TransactionType::Dispute, WITHDRAWAL)),
+            (3, TransactionStatus(TransactionType::Dispute, DISPUTED)),
         ]);
         let mut account_status = AccountStatus::from(DEPOSIT - WITHDRAWAL);
 
         // Test: dispute a `Deposit`
         assert_dispute_not_supported(
             1,
-            &[TransactionType::Dispute, TransactionType::Resolve, TransactionType::Chargeback],
+            &[TransactionType::Resolve, TransactionType::Chargeback],
             &mut transactions,
             &mut account_status,
         );
@@ -309,7 +311,7 @@ mod tests {
         // Test: dispute a `Withdrawal`
         assert_dispute_not_supported(
             2,
-            &[TransactionType::Resolve, TransactionType::Chargeback],
+            &[TransactionType::Dispute, TransactionType::Resolve, TransactionType::Chargeback],
             &mut transactions,
             &mut account_status,
         );
@@ -327,15 +329,15 @@ mod tests {
     fn test_dispute_transaction_resolve() {
         let mut transactions = Transactions::from_iter([
             (1, TransactionStatus(TransactionType::Deposit, DEPOSIT)),
-            (2, TransactionStatus(TransactionType::Withdrawal, WITHDRAWAL)),
+            (2, TransactionStatus(TransactionType::Deposit, DISPUTED)),
         ]);
-        let mut account_status = AccountStatus::from(DEPOSIT - WITHDRAWAL);
+        let mut account_status = AccountStatus::from(DEPOSIT + DISPUTED);
 
         Processor::dispute_transaction(&mut transactions, 2, TransactionType::Dispute, &mut account_status).unwrap();
-        assert_eq!(account_status, AccountStatus::from(DEPOSIT - WITHDRAWAL).held(WITHDRAWAL));
+        assert_eq!(account_status, AccountStatus::from(DEPOSIT).held(DISPUTED));
 
         Processor::dispute_transaction(&mut transactions, 2, TransactionType::Resolve, &mut account_status).unwrap();
-        assert_eq!(account_status, AccountStatus::from(DEPOSIT));
+        assert_eq!(account_status, AccountStatus::from(DEPOSIT + DISPUTED));
 
         assert_dispute_not_supported(
             2,
@@ -349,15 +351,15 @@ mod tests {
     fn test_dispute_transaction_chargeback() {
         let mut transactions = Transactions::from_iter([
             (1, TransactionStatus(TransactionType::Deposit, DEPOSIT)),
-            (2, TransactionStatus(TransactionType::Withdrawal, WITHDRAWAL)),
+            (2, TransactionStatus(TransactionType::Deposit, DISPUTED)),
         ]);
-        let mut account_status = AccountStatus::from(DEPOSIT - WITHDRAWAL);
+        let mut account_status = AccountStatus::from(DEPOSIT + DISPUTED);
 
         Processor::dispute_transaction(&mut transactions, 2, TransactionType::Dispute, &mut account_status).unwrap();
-        assert_eq!(account_status, AccountStatus::from(DEPOSIT - WITHDRAWAL).held(WITHDRAWAL));
+        assert_eq!(account_status, AccountStatus::from(DEPOSIT).held(DISPUTED));
 
         Processor::dispute_transaction(&mut transactions, 2, TransactionType::Chargeback, &mut account_status).unwrap();
-        assert_eq!(account_status, AccountStatus::from(DEPOSIT - WITHDRAWAL).locked());
+        assert_eq!(account_status, AccountStatus::from(DEPOSIT).locked());
 
         assert_dispute_not_supported(
             2,
@@ -368,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn test_process_transaction() {
+    fn test_process_transaction_ok() {
         let mut processor = Processor::default();
 
         processor.process_transaction(Transaction::deposit(1, DEPOSIT)).unwrap();
@@ -384,22 +386,26 @@ mod tests {
             Err(Error::TransactionNotFound(42))
         );
 
-        processor.process_transaction(Transaction::withdrawal(2, WITHDRAWAL)).unwrap();
-        assert_eq!(processor.accounts[&0], AccountStatus::from(DEPOSIT - WITHDRAWAL));
+        processor.process_transaction(Transaction::deposit(2, DISPUTED)).unwrap();
+        assert_eq!(processor.accounts[&0], AccountStatus::from(DEPOSIT + DISPUTED));
+
+        processor.process_transaction(Transaction::withdrawal(5, WITHDRAWAL)).unwrap();
+        assert_eq!(processor.accounts[&0], AccountStatus::from(AVAILABLE));
 
         processor.process_transaction(Transaction::dispute(2)).unwrap();
-        assert_eq!(processor.accounts[&0], AccountStatus::from(DEPOSIT - WITHDRAWAL).held(WITHDRAWAL));
+        assert_eq!(processor.accounts[&0], AccountStatus::from(DEPOSIT - WITHDRAWAL).held(DISPUTED));
 
         processor.process_transaction(Transaction::resolve(2)).unwrap();
-        assert_eq!(processor.accounts[&0], AccountStatus::from(DEPOSIT));
+        assert_eq!(processor.accounts[&0], AccountStatus::from(AVAILABLE));
 
-        processor.process_transaction(Transaction::withdrawal(3, WITHDRAWAL)).unwrap();
+        processor.process_transaction(Transaction::deposit(3, DISPUTED)).unwrap();
+        assert_eq!(processor.accounts[&0], AccountStatus::from(AVAILABLE + DISPUTED));
 
         processor.process_transaction(Transaction::dispute(3)).unwrap();
-        assert_eq!(processor.accounts[&0], AccountStatus::from(DEPOSIT - WITHDRAWAL).held(WITHDRAWAL));
+        assert_eq!(processor.accounts[&0], AccountStatus::from(AVAILABLE).held(DISPUTED));
 
         processor.process_transaction(Transaction::chargeback(3)).unwrap();
-        assert_eq!(processor.accounts[&0], AccountStatus::from(DEPOSIT - WITHDRAWAL).locked());
+        assert_eq!(processor.accounts[&0], AccountStatus::from(AVAILABLE).locked());
 
         for t in [
             TransactionType::Deposit,
@@ -413,5 +419,24 @@ mod tests {
                 Err(Error::AccountLocked(4, 0))
             );
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "attempt to subtract with overflow")]
+    fn test_process_transaction_failure() {
+        let mut processor = Processor::default();
+
+        processor.process_transaction(Transaction::deposit(2, DISPUTED)).unwrap();
+        assert_eq!(processor.accounts[&0], AccountStatus::from(DISPUTED));
+
+        assert_matches!(
+            processor.process_transaction(Transaction::withdrawal(5, WITHDRAWAL)),
+            Err(Error::NotEnoughFunds(5, 0))
+        );
+
+        processor.process_transaction(Transaction::withdrawal(5, DISPUTED)).unwrap();
+        assert_eq!(processor.accounts[&0], AccountStatus::from(Amount::MIN));
+
+        processor.process_transaction(Transaction::dispute(2)).unwrap();
     }
 }
