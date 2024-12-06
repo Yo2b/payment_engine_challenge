@@ -94,11 +94,11 @@ impl Transaction {
 #[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
 pub struct AccountStatus {
     /// Available funds for this account.
-    pub available: Amount,
+    available: Amount,
     /// Held funds for this account, ie. disputed amounts.
-    pub held: Amount,
+    held: Amount,
     /// An account can be locked/frozen if a transaction has been charged back.
-    pub locked: bool,
+    locked: bool,
 }
 
 impl AccountStatus {
@@ -107,11 +107,47 @@ impl AccountStatus {
     pub fn held(self, held: Amount) -> Self {
         Self { held, ..self }
     }
+
     /// Set this account status as locked.
     #[inline]
     pub fn locked(self) -> Self {
         Self { locked: true, ..self }
     }
+
+    /// Hold more funds for this account status.
+    ///
+    /// # Panics
+    /// This function overflows if `amount` is larger than available funds.
+    pub fn hold(&mut self, amount: Amount) {
+        if !self.locked {
+            // self.available -= amount;
+            self.held += amount;
+        }
+    }
+
+    /// Release held funds for this account status.
+    ///
+    /// # Panics
+    /// This function overflows if `amount` is larger than held funds.
+    pub fn release(&mut self, amount: Amount) {
+        if !self.locked {
+            self.available += amount;
+            self.held -= amount;
+        }
+    }
+
+    /// Lock this account status.
+    ///
+    /// # Panics
+    /// This function overflows if `amount` is larger than held funds.
+    #[inline]
+    pub fn lock(&mut self, amount: Amount) {
+        if !self.locked {
+            self.held -= amount;
+            self.locked = true;
+        }
+    }
+
     /// Compute total funds for this account status.
     #[inline]
     pub fn total(&self) -> Amount {

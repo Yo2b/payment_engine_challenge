@@ -146,19 +146,9 @@ impl Processor {
         };
 
         match transaction_type {
-            TransactionType::Dispute if matches!(t, TransactionType::Withdrawal) => {
-                // account_status.available -= amount; // challenge wording error
-                account_status.held += amount;
-            }
-            TransactionType::Resolve if matches!(t, TransactionType::Dispute) => {
-                account_status.available += amount;
-                account_status.held -= amount;
-            }
-            TransactionType::Chargeback if matches!(t, TransactionType::Dispute) => {
-                // account_status.available -= amount;
-                account_status.held -= amount;
-                account_status.locked = true;
-            }
+            TransactionType::Dispute if matches!(t, TransactionType::Withdrawal) => account_status.hold(amount),
+            TransactionType::Resolve if matches!(t, TransactionType::Dispute) => account_status.release(amount),
+            TransactionType::Chargeback if matches!(t, TransactionType::Dispute) => account_status.lock(amount),
             _ => return Err(Error::OperationNotSupported(transaction_id, Some(*t), transaction_type)),
         }
 
