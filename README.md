@@ -14,10 +14,10 @@ Regarding requirements about the decimal precision, I decided on purpose not to 
 
 As a **strong hypothesis** prior to this challenge, I made the following assumptions:
 - A transaction is considered as a one-way operation, ie. it is not possible for the same transaction to concern/refer to two different clients as a two-way (+/-) operation.
-- A deposit cannot be disputed, only a withdrawal can.
+- A ~~deposit~~ **withdrawal** cannot be disputed, only a ~~withdrawal~~ **deposit** can. But it implies there must be sufficient funds available in the event of a dispute. If not, the operation will **overflow** for now.
 - Once resolved or charged back, a transaction is considered completed and cannot be disputed again; as a consequence, it can be rolled out of transaction history.
 - When an account is locked/frozen, should further transactions occur, it is considered they should just be discarded without any kind of track keeping except logging.
-- It seems the wording for the expected behavior of a dispute could be erroneous; it will be considered that only held funds should increase by the amount disputed, and that clients' available funds should **not** be decreased.
+- ~~It seems the wording for the expected behavior of a dispute could be erroneous; it will be considered that only held funds should increase by the amount disputed, and that clients' available funds should **not** be decreased~~.
 
 Based on this assumptions:
 - Any I/O errors or CSV-format (de)serialization errors are considered unrecoverable and will stop the process immediately.

@@ -120,7 +120,7 @@ impl AccountStatus {
     /// This function overflows if `amount` is larger than available funds.
     pub fn hold(&mut self, amount: Amount) {
         if !self.locked {
-            // self.available -= amount;
+            self.available -= amount;
             self.held += amount;
         }
     }
